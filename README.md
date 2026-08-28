@@ -1,6 +1,7 @@
 # Skitch
 
 [![CMake on multiple platforms](https://github.com/liqili/Skitch/actions/workflows/cmake-multi-platform.yml/badge.svg)](https://github.com/liqili/Skitch/actions/workflows/cmake-multi-platform.yml)
+[![Release](https://github.com/liqili/Skitch/actions/workflows/release.yml/badge.svg)](https://github.com/liqili/Skitch/actions/workflows/release.yml)
 
 A screenshot capture and annotation app for macOS, written in C/C++
 (Objective-C++ for the Cocoa glue) and built with CMake.
@@ -72,9 +73,52 @@ instead of cancelling the others. The macOS job additionally asserts the app
 bundle came out whole, and the Linux job prints `ldd` for the core test binary
 so any accidental platform dependency is visible in the log.
 
+### Cutting a release
+
+Releases are driven by version tags. One command bumps the version, commits,
+tags and pushes:
+
+```bash
+./scripts/release.sh 1.1.0
+```
+
+Add a pre-release suffix to publish it as one — `./scripts/release.sh 1.1.0-rc.1`
+tags `v1.1.0-rc.1` and GitHub marks the release pre-release. The script refuses
+to run on a dirty tree, off `main`, behind the remote, or over an existing tag,
+and shows you the plan before it pushes anything.
+
+Pushing the tag starts `.github/workflows/release.yml`, which on a macOS runner:
+
+1. checks the tag agrees with the version in `CMakeLists.txt`, before building;
+2. builds **universal** (`arm64;x86_64`) — the runners are Apple Silicon, so
+   without this the download would not run on an Intel Mac at all;
+3. runs both test suites;
+4. packages the disk image with `scripts/make-dmg.sh`;
+5. mounts the image and checks what is inside it — executable, icon,
+   `Info.plist` version, `/Applications` symlink, code signature;
+6. publishes the release with the `.dmg` and its SHA-256 attached.
+
+Re-running on an existing tag replaces the assets rather than failing, so a
+transient upload error is recoverable. Running the workflow by hand from the
+Actions tab does everything except the publish, which is the way to exercise
+the pipeline without cutting a release — the disk image lands as a build
+artifact either way.
+
+Only macOS ships a binary; the GUI has no backend elsewhere yet. What proves
+the portable core still builds on Linux and Windows is the matrix above, which
+has already run on the commit a tag points at.
+
 ## Installing
 
-The quickest route — builds first if needed, then installs to `/Applications`:
+Ready-made universal disk images are attached to each
+[release](https://github.com/liqili/Skitch/releases) — open the `.dmg` and drag
+Skitch onto the Applications shortcut. Because those builds are ad-hoc signed
+rather than notarised, Gatekeeper blocks the first launch; right-click the app
+and choose Open, or run
+`xattr -dr com.apple.quarantine /Applications/Skitch.app`.
+
+To install from source instead — builds first if needed, then installs to
+`/Applications`:
 
 ```bash
 ./scripts/install.sh

@@ -2,6 +2,9 @@
 build*/
 cmake-build-*/
 
+# Release packaging output
+dist/
+
 # macOS
 .DS_Store
 

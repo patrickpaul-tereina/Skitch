@@ -1,0 +1,286 @@
+# Cuts a GitHub release from a version tag.
+#
+#   git tag -a v1.2.0 -m "Skitch 1.2.0" && git push origin v1.2.0
+#
+# The tag drives everything. This workflow builds a universal (arm64 + x86_64)
+# Skitch.app on a macOS runner, runs the test suites, packages the drag-to-
+# install disk image, verifies the image by mounting it, and publishes the
+# result with a SHA-256 checksum attached. scripts/release.sh does the version
+# bump and the tagging in one step, so the two cannot drift apart.
+#
+# Running it from the Actions tab instead (workflow_dispatch) does every step
+# except the publish, so the pipeline can be exercised without cutting a
+# release. The disk image is uploaded as a build artifact either way.
+#
+# Only macOS produces a shippable binary: the GUI is Cocoa/CoreGraphics and has
+# no backend on other platforms yet. cmake-multi-platform.yml is what proves the
+# portable core still builds on Linux and Windows, and it has already run on the
+# commit a tag points at.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Read-only by default; the publishing job asks for write explicitly.
+permissions:
+  contents: read
+
+# Two pushes in quick succession should not race each other to publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Universal disk image
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # Full history so release-note generation can see the previous tag.
+        fetch-depth: 0
+
+    - name: Work out the version
+      # The tag is authoritative for what gets published, but CMakeLists.txt is
+      # authoritative for what goes into Info.plist and the disk image name.
+      # They have to agree, or the release would ship a file whose version
+      # contradicts its tag. Check that before spending minutes on a build.
+      id: version
+      shell: bash
+      env:
+        # Via the environment rather than inline ${{ }}, so a tag name is never
+        # pasted into the script text.
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+
+        tag=""
+        if [[ "$REF_TYPE" == "tag" ]]; then
+          tag="$REF_NAME"
+        fi
+
+        # Read the version out of the project() call. Deliberately awk rather
+        # than sed: the macOS runner has BSD sed, which has no \+.
+        project_version="$(awk '
+          /^project\(/,/\)/ {
+            if (match($0, /VERSION[ \t]+[0-9]+\.[0-9]+\.[0-9]+/)) {
+              s = substr($0, RSTART, RLENGTH)
+              sub(/VERSION[ \t]+/, "", s)
+              print s
+              exit
+            }
+          }' CMakeLists.txt)"
+
+        if [[ -z "$project_version" ]]; then
+          echo "::error::Could not read VERSION out of the project() call in CMakeLists.txt."
+          exit 1
+        fi
+
+        prerelease=false
+        publish=false
+
+        if [[ -n "$tag" ]]; then
+          publish=true
+
+          # v1.2.0 and v1.2.0-beta.1 both correspond to project version 1.2.0.
+          tag_version="${tag#v}"
+          tag_version="${tag_version%%-*}"
+
+          if [[ "$tag_version" != "$project_version" ]]; then
+            echo "::error::Tag $tag says version $tag_version, but CMakeLists.txt says $project_version. Bump one to match the other (scripts/release.sh does both at once) and re-tag."
+            exit 1
+          fi
+
+          # A hyphen introduces a pre-release identifier: v1.2.0-rc.1, v1.2.0-beta.
+          if [[ "$tag" == *-* ]]; then
+            prerelease=true
+          fi
+        else
+          echo "Manual run — building and verifying, but publishing nothing."
+        fi
+
+        {
+          echo "tag=$tag"
+          echo "version=$project_version"
+          echo "prerelease=$prerelease"
+          echo "publish=$publish"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "Version $project_version${tag:+, tag $tag}"
+
+    - name: Configure CMake
+      # Both architectures in one bundle. The runners are Apple Silicon, so
+      # without this the disk image would not run on an Intel Mac at all.
+      # The deployment target (macOS 12) comes from CMakeLists.txt.
+      run: >
+        cmake -B build
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        -S .
+
+    - name: Build
+      run: cmake --build build --config Release -j"$(sysctl -n hw.ncpu)"
+
+    - name: Test
+      working-directory: build
+      run: ctest --build-config Release --output-on-failure
+
+    - name: Check the binary is universal
+      shell: bash
+      run: |
+        set -euo pipefail
+        archs="$(lipo -archs build/Skitch.app/Contents/MacOS/Skitch)"
+        echo "architectures: $archs"
+        for want in arm64 x86_64; do
+          case " $archs " in
+            *" $want "*) ;;
+            *) echo "::error::$want slice missing from the app binary."; exit 1 ;;
+          esac
+        done
+
+    - name: Package the disk image
+      shell: bash
+      run: scripts/make-dmg.sh "$PWD/build/Skitch.app" "$PWD/dist"
+
+    - name: Verify the disk image
+      # Mount what is about to be published and inspect the app inside it,
+      # rather than trusting that packaging succeeded because it exited zero.
+      shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        set -euo pipefail
+        dmg="$PWD/dist/Skitch-$VERSION.dmg"
+        test -f "$dmg" || { echo "::error::$dmg was not produced."; exit 1; }
+
+        mnt="$(mktemp -d)"
+        hdiutil attach -readonly -nobrowse -mountpoint "$mnt" "$dmg" >/dev/null
+        # Detach however this step ends, so a failed assertion does not leave
+        # the image mounted.
+        trap 'hdiutil detach "$mnt" >/dev/null 2>&1 || true' EXIT
+
+        app="$mnt/Skitch.app"
+        test -x "$app/Contents/MacOS/Skitch"
+        test -f "$app/Contents/Resources/Skitch.icns"
+        test -f "$app/Contents/Info.plist"
+        test -L "$mnt/Applications"   # the drag-here-to-install target
+
+        plist_version="$(defaults read "$app/Contents/Info" CFBundleShortVersionString)"
+        if [[ "$plist_version" != "$VERSION" ]]; then
+          echo "::error::The packaged app reports version $plist_version, expected $VERSION."
+          exit 1
+        fi
+
+        codesign --verify --strict "$app"
+
+        echo "disk image verified: $(du -h "$dmg" | cut -f1) — Skitch $plist_version"
+
+    - name: Checksum
+      shell: bash
+      working-directory: dist
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        set -euo pipefail
+        shasum -a 256 "Skitch-$VERSION.dmg" > "Skitch-$VERSION.dmg.sha256"
+        cat "Skitch-$VERSION.dmg.sha256"
+
+    - name: Upload the build artifact
+      # Uploaded on manual runs too, so the pipeline can be exercised without
+      # publishing anything.
+      uses: actions/upload-artifact@v4
+      with:
+        name: Skitch-${{ steps.version.outputs.version }}-macos
+        path: |
+          dist/Skitch-*.dmg
+          dist/Skitch-*.dmg.sha256
+        if-no-files-found: error
+
+    - name: Compose the release notes
+      if: steps.version.outputs.publish == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ steps.version.outputs.version }}
+        TAG: ${{ steps.version.outputs.tag }}
+      run: |
+        set -euo pipefail
+        sum="$(cut -d' ' -f1 < "dist/Skitch-$VERSION.dmg.sha256")"
+
+        cat > dist/notes.md <<EOF
+        Universal build for Apple Silicon and Intel Macs, macOS 12 or later.
+
+        **Install:** open \`Skitch-$VERSION.dmg\` and drag Skitch onto the
+        Applications shortcut. On first capture, macOS asks for Screen Recording
+        access under System Settings > Privacy & Security.
+
+        This build is signed ad hoc rather than notarised, so Gatekeeper refuses
+        it on first launch. Right-click the app and choose Open, or:
+
+        \`\`\`
+        xattr -dr com.apple.quarantine /Applications/Skitch.app
+        \`\`\`
+
+        \`Skitch-$VERSION.dmg\` SHA-256:
+
+        \`\`\`
+        $sum
+        \`\`\`
+        EOF
+
+        # Append GitHub's own commit and contributor summary, asked for
+        # explicitly rather than through `gh release create --generate-notes`,
+        # whose ordering against a supplied --notes-file is not something to
+        # rely on. If the call fails the release still goes out, with the
+        # preamble alone.
+        generated="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                       -f tag_name="$TAG" --jq .body 2>/dev/null || true)"
+        if [[ -n "$generated" ]]; then
+          printf '\n---\n\n%s\n' "$generated" >> dist/notes.md
+        else
+          echo "::warning::Could not generate the commit summary; publishing the preamble only."
+        fi
+
+        cat dist/notes.md
+
+    - name: Publish the release
+      if: steps.version.outputs.publish == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ steps.version.outputs.tag }}
+        VERSION: ${{ steps.version.outputs.version }}
+        PRERELEASE: ${{ steps.version.outputs.prerelease }}
+      run: |
+        set -euo pipefail
+
+        assets=("dist/Skitch-$VERSION.dmg" "dist/Skitch-$VERSION.dmg.sha256")
+
+        flags=()
+        if [[ "$PRERELEASE" == "true" ]]; then
+          flags=(--prerelease)
+        fi
+
+        # Re-running the workflow on an existing tag should refresh the assets
+        # rather than fail outright, so a transient upload error is recoverable.
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Release $TAG already exists — replacing its assets."
+          gh release upload "$TAG" "${assets[@]}" --clobber
+        else
+          # ${flags[@]+...} keeps `set -u` happy when the array is empty, which
+          # bash 3.2 — the macOS runner's bash — would otherwise call unbound.
+          gh release create "$TAG" "${assets[@]}" \
+            --title "Skitch $VERSION" \
+            --notes-file dist/notes.md \
+            ${flags[@]+"${flags[@]}"}
+        fi
+
+        echo "Published: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
