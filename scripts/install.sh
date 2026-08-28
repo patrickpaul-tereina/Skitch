@@ -84,6 +84,15 @@ ditto "$APP" "$TARGET"
 # Clear the quarantine flag so Gatekeeper does not block a locally built app.
 xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null || true
 
+# macOS caches icons per bundle path, so reinstalling over the same path can
+# leave Finder and the Dock showing the previous icon. Bumping the bundle's
+# mtime and re-registering it usually invalidates that without a relaunch.
+touch "$TARGET" 2>/dev/null || true
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "$LSREGISTER" ]]; then
+    "$LSREGISTER" -f "$TARGET" >/dev/null 2>&1 || true
+fi
+
 if ! codesign --verify --strict "$TARGET" 2>/dev/null; then
     warn "Code signature did not verify. The app will still run locally, but
          macOS may re-prompt for Screen Recording access."
@@ -101,6 +110,11 @@ cat <<EOF
 
   Launch it:      open -a $APP_NAME
   Grant capture:  System Settings > Privacy & Security > Screen Recording
+
+If Finder or the Dock still shows the previous icon, the icon cache is stale
+for this path (the bundle itself is fine — copy it elsewhere and it looks
+right). Clear it with:
+  killall Dock Finder
 
 Because this build is ad-hoc signed, macOS treats each rebuild as a new app and
 will ask for Screen Recording again after you reinstall.
