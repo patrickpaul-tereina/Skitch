@@ -1,5 +1,7 @@
 # Skitch
 
+[![CMake on multiple platforms](https://github.com/liqili/Skitch/actions/workflows/cmake-multi-platform.yml/badge.svg)](https://github.com/liqili/Skitch/actions/workflows/cmake-multi-platform.yml)
+
 A screenshot capture and annotation app for macOS, written in C/C++
 (Objective-C++ for the Cocoa glue) and built with CMake.
 
@@ -52,6 +54,23 @@ ctest --test-dir build-core
 | --- | --- | --- |
 | `SKITCH_CORE_ONLY` | `OFF` | Build only the portable core, even on macOS |
 | `SKITCH_BUILD_TESTS` | `ON` | Build the test suite |
+
+### Continuous integration
+
+`.github/workflows/cmake-multi-platform.yml` builds and tests four
+configurations on every push and pull request to `main`:
+
+| Runner | Compiler | Builds |
+| --- | --- | --- |
+| `macos-latest` | AppleClang | the whole app, both test suites |
+| `ubuntu-latest` | GCC | portable core + core tests |
+| `ubuntu-latest` | Clang | portable core + core tests |
+| `windows-latest` | MSVC | portable core + core tests |
+
+`fail-fast` is off, so a compiler-specific problem shows up on its own row
+instead of cancelling the others. The macOS job additionally asserts the app
+bundle came out whole, and the Linux job prints `ldd` for the core test binary
+so any accidental platform dependency is visible in the log.
 
 ## Installing
 

@@ -1,0 +1,121 @@
+# CMake build across macOS, Linux and Windows.
+#
+# What gets built differs by platform, and that is by design:
+#
+#   macOS            the whole app — Skitch.app, the icon generator, and both
+#                    test suites (core + the CoreGraphics render smoke test)
+#   Linux / Windows  the portable core (skitch_core) and its test suite; the
+#                    GUI is Cocoa/CoreGraphics and has no backend elsewhere yet
+#
+# CMakeLists.txt detects this itself and configures the reduced set rather than
+# failing, so the same commands work everywhere. See the Platform support and
+# Porting sections of README.md.
+
+name: CMake on multiple platforms
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} · ${{ matrix.c_compiler }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Report every combination rather than cancelling siblings on the first
+      # failure — a compiler-specific problem is exactly what this matrix is
+      # here to surface.
+      fail-fast: false
+
+      # Four configurations:
+      #   1. <macOS,   Release, AppleClang>  — full app + both test suites
+      #   2. <Linux,   Release, GCC>         — portable core + core tests
+      #   3. <Linux,   Release, Clang>       — portable core + core tests
+      #   4. <Windows, Release, MSVC>        — portable core + core tests
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]
+        include:
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+        exclude:
+          - os: macos-latest
+            c_compiler: gcc
+          - os: macos-latest
+            c_compiler: cl
+          - os: windows-latest
+            c_compiler: gcc
+          - os: windows-latest
+            c_compiler: clang
+          - os: ubuntu-latest
+            c_compiler: cl
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set reusable strings
+      # Turn repeated input strings (such as the build output directory) into
+      # step outputs, so they can be used throughout the workflow file.
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    - name: Configure CMake
+      # CMAKE_BUILD_TYPE only matters for single-config generators such as
+      # Make and Ninja; the Visual Studio generator ignores it in favour of
+      # --config at build time.
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -S ${{ github.workspace }}
+
+    - name: Build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      # --output-on-failure so a failing assertion shows up in the log instead
+      # of just a red tick. --build-config is needed for multi-config
+      # generators, where the tests live under a per-config subdirectory.
+      run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
+
+    - name: Verify the app bundle
+      # macOS is the only platform that produces one; check it came out whole
+      # rather than trusting an exit code.
+      if: runner.os == 'macOS'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: |
+        set -euo pipefail
+        test -x Skitch.app/Contents/MacOS/Skitch
+        test -f Skitch.app/Contents/Resources/Skitch.icns
+        test -f Skitch.app/Contents/Info.plist
+        echo "bundle layout OK"
+
+    - name: Verify the portable core has no platform dependencies
+      # The point of skitch_core is that it builds anywhere. On Linux that is
+      # cheap to assert: nothing it links should come from outside libc/libstdc++.
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: |
+        set -euo pipefail
+        ldd ./skitch_core_tests
+        echo "core test dependencies listed above"
