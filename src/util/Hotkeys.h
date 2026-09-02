@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // System-wide hotkeys via Carbon's RegisterEventHotKey. Unlike NSEvent global
 // monitors this needs no Accessibility permission, which matters for a capture
 // tool that should work the moment it launches.

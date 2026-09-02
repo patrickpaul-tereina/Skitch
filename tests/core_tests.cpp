@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Tests for the portable document model. Deliberately free of any platform
 // header so it compiles and runs on macOS, Linux and Windows — this is the
 // suite that keeps `skitch_core` honest about being platform-free.

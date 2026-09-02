@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // The editable state of one capture: the annotation list, the crop window and
 // an undo history. The pixels themselves live in a CGImage owned by the UI
 // layer; this class only ever refers to them by size and crop rectangle, which

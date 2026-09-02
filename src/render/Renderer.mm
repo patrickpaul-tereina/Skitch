@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 #include "render/Renderer.h"
 
 #import <CoreText/CoreText.h>

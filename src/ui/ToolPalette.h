@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // The strip of controls above the canvas: tool picker, colour, size, fill and
 // the capture / copy / save shortcuts.
 #pragma once

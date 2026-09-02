@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Kunkka
+# SPDX-License-Identifier: GPL-2.0-only
 cmake_minimum_required(VERSION 3.20)
 
 project(Skitch
@@ -45,7 +47,8 @@ endif()
 
 set(APP_NAME        "Skitch")
 set(APP_BUNDLE_ID   "com.skitch.app")
-set(APP_COPYRIGHT   "Skitch")
+# Shown in the About box, via NSHumanReadableCopyright.
+set(APP_COPYRIGHT   "Copyright © 2026 Kunkka. Licensed under the GNU General Public License, version 2.")
 
 # ----------------------------------------------------------- portable core ---
 # Annotation and Document pull in no platform headers, so this library compiles
@@ -78,6 +81,29 @@ endif()
 if(NOT SKITCH_BUILD_APP)
     message(STATUS "Skitch: GUI is macOS-only (Cocoa/CoreGraphics); "
                    "configured the portable core and its tests only.")
+
+    # ------------------------------------------------------ packaging the core
+    # With no app to ship on these platforms, the library and its headers are
+    # what a release can offer. The GPL makes shipping LICENSE alongside them a
+    # requirement, not a courtesy.
+    #
+    # Deliberately inside this branch. The macOS build forces the install prefix
+    # to /Applications so `cmake --install` drops the bundle where it belongs,
+    # and scattering lib/ and include/ through /Applications would be wrong.
+    include(GNUInstallDirs)
+
+    install(TARGETS skitch_core
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+    install(FILES
+                src/model/Types.h
+                src/model/Annotation.h
+                src/model/Document.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/skitch/model)
+
+    install(FILES LICENSE README.md packaging/USING-THE-CORE.md
+            DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
     return()
 endif()
 

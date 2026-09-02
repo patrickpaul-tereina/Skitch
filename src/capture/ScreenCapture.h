@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Thin wrapper over the CoreGraphics window/display capture APIs, plus the
 // Screen Recording permission dance macOS requires before any of them return
 // real pixels.

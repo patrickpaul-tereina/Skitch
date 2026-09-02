@@ -67,3 +67,14 @@ coordinates and a crop rectangle; turning that into pixels is the renderer's
 job, and the only renderer that exists is CoreGraphics. Porting means writing
 a new one against this same model — see the Porting section of the project
 README.
+
+## Licence
+
+GNU General Public License, version 2 only. The full text is in
+`share/doc/Skitch/LICENSE`.
+
+Read that before you link against this. The GPL is not a permissive licence:
+because this ships as a static library, the terms extend to whatever you link
+it into, so a program that uses `skitch_core` has to be GPLv2-compatible and
+distributed with its source. Version 2 **only** — there is no "or any later
+version" clause, which also rules out combining it with GPLv3-only code.

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Headless exercise of the document model and renderer. Builds a synthetic
 // "screenshot", marks it up with every tool, crops it, round-trips undo/redo
 // and writes the flattened result to disk.

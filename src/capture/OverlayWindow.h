@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Full-screen selection overlay: freezes every display, dims them, and lets
 // the user drag out a region or click a window to capture.
 #pragma once

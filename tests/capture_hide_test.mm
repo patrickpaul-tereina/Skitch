@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Covers SCHideOwnWindows / SCRestoreOwnWindows — the "get out of the shot"
 // step that runs before every capture.
 //

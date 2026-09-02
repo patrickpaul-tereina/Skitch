@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Basic geometry / colour value types. Pure C++, no platform headers so the
 // document model stays testable and free of Cocoa.
 #pragma once

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // One drawable mark on top of the captured image. Everything the renderer and
 // the hit-tester need lives here; the type is a plain value so undo can be
 // implemented by copying whole vectors.

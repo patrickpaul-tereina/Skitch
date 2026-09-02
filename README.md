@@ -395,3 +395,29 @@ The renderer is the one worth planning first. `sk::renderDocument` already has
 a single, narrow contract — draw a `Document` into a context whose origin is
 the crop's top-left, one unit per base-image pixel, y downwards — so it is the
 natural seam for a backend interface rather than a rewrite.
+
+## License
+
+Copyright © 2026 Kunkka.
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License, **version 2**, as published by the
+Free Software Foundation. The full text is in [LICENSE](LICENSE).
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+Every source file carries an [SPDX](https://spdx.dev) tag
+(`SPDX-License-Identifier: GPL-2.0-only`) rather than a copy of the notice, so
+the licence of any one file is machine-readable and unambiguous.
+
+This is version 2 **only** — the notice does not include the FSF's usual "or
+any later version" clause. That is deliberate, but it is worth knowing: it means
+this code cannot be combined with GPLv3-only code. Adding `-or-later` to the
+SPDX tags and to this section is all it takes to change that.
+
+Note what the licence means for `skitch_core`, which is published as a static
+library: the GPL extends to anything linked against it, so a closed-source
+program cannot use it. That is a stronger condition than the MIT licence this
+project previously carried.

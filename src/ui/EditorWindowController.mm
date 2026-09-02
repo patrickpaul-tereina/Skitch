@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 #import "ui/EditorWindowController.h"
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>

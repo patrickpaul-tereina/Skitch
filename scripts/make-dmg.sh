@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Kunkka
+# SPDX-License-Identifier: GPL-2.0-only
 #
 # Builds a distributable drag-to-install disk image.
 #

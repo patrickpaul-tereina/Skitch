@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // One window per capture: palette on top, canvas in a scroll view, status bar
 // at the bottom.
 #pragma once

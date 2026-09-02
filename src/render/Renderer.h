@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Kunkka
+// SPDX-License-Identifier: GPL-2.0-only
 // Draws a Document into any CGContext. The same code path is used by the
 // on-screen canvas, by PNG export and by the clipboard, so what you see really
 // is what you get.
