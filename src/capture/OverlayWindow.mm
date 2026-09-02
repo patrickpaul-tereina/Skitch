@@ -297,6 +297,7 @@
 @property(nonatomic, copy) SCCaptureCompletion completion;
 @property(nonatomic) SCCaptureMode mode;
 @property(nonatomic, strong) NSArray<NSDictionary *> *windowList;
+@property(nonatomic, strong) NSArray<NSWindow *> *hiddenWindows;
 @property(nonatomic) BOOL finished;
 @end
 
@@ -333,6 +334,32 @@ static SCOverlayController *gActiveController = nil;
 }
 
 - (void)start {
+    // Get out of our own way first. A capture started from the palette's
+    // Capture button — or from a menu while an editor is frontmost — is aimed
+    // at whatever that window is covering, and the snapshot below would
+    // otherwise freeze Skitch's own interface into the shot. finishWithImage:
+    // puts the windows back, including when the capture is cancelled.
+    self.hiddenWindows = SCHideOwnWindows();
+
+    if (self.hiddenWindows.count == 0) {
+        [self snapshotAndPresent];
+        return;
+    }
+
+    // -orderOut: returns before the window server has actually composited the
+    // windows away, so snapshotting on this turn of the loop would still catch
+    // them. Nothing reports when that has happened; a short wait is the
+    // available answer, and it doubles as the visual cue that Skitch stepped
+    // aside.
+    __weak SCOverlayController *weakSelf = self;
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(SCWindowHideSettleDelay * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), ^{
+            [weakSelf snapshotAndPresent];
+        });
+}
+
+- (void)snapshotAndPresent {
     self.snapshots = SCSnapshotAllDisplays();
     if (self.snapshots.count == 0) {
         SCShowPermissionAlert();
@@ -408,6 +435,11 @@ static SCOverlayController *gActiveController = nil;
     }
     self.finished = YES;
     [self tearDownWindows];
+
+    // Back before the completion runs, so a new editor window opens in front of
+    // the ones that were already there rather than behind them.
+    SCRestoreOwnWindows(self.hiddenWindows);
+    self.hiddenWindows = nil;
 
     SCCaptureCompletion completion = self.completion;
     self.completion = nil;

@@ -191,6 +191,12 @@ In the capture overlay: drag to select, hold **Shift** for a square, press
 screen, **Esc** to cancel. Every display is frozen before the overlay appears,
 so the overlay itself never lands in the shot.
 
+Skitch's own windows go away first. Starting a capture — from the palette's
+Capture button, a menu, or a global hotkey — orders any open editor off the
+screen before the displays are frozen, so what you get is whatever was
+underneath. They come back when the capture finishes or you cancel, with focus
+where it was. The menu bar icon stays put.
+
 ### Annotating
 
 | Tool | Key | |
@@ -336,7 +342,7 @@ drawing functions.
 ctest --test-dir build
 ```
 
-Two suites, split by what they need:
+Three suites, split by what they need:
 
 **`skitch_core_tests`** (`tests/core_tests.cpp`) — 107 checks over geometry,
 annotation bounds, hit testing for every tool, transforms, the document,
@@ -350,9 +356,19 @@ drives CoreGraphics and CoreText. Builds a synthetic screenshot, applies every
 tool, renders, and round-trips a PNG, leaving both the cropped and full-frame
 results in `build/` for eyeballing.
 
+**`skitch_capture_hide_test`** (`tests/capture_hide_test.mm`) — macOS only.
+Covers the step that takes Skitch's own windows off the screen before a
+capture: that editors are hidden and put back in their original order with
+focus intact, and that the status bar item's window is left alone, since
+ordering that out would take the menu bar icon with it. It asserts on the
+messages sent rather than on window-server state, because a test run has no
+window server behind it — the windows it makes never get a window number, so
+the order `NSApp` reports is not meaningful.
+
 ```bash
 ./build/skitch_core_tests
 ./build/skitch_render_smoke /tmp/out.png
+./build/skitch_capture_hide_test
 ```
 
 There is also a UI smoke check that builds a real editor window, renders it

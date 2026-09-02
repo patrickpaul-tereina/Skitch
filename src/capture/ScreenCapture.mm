@@ -96,6 +96,40 @@ CGImageRef SCCaptureWindow(CGWindowID windowID) {
 #pragma clang diagnostic pop
 }
 
+// ------------------------------------------------------- our own windows ---
+
+const NSTimeInterval SCWindowHideSettleDelay = 0.12;
+
+NSArray<NSWindow *> *SCHideOwnWindows(void) {
+    NSMutableArray<NSWindow *> *hidden = [NSMutableArray array];
+
+    // -orderedWindows is front-to-back, which is the order the caller hands
+    // back to SCRestoreOwnWindows.
+    for (NSWindow *w in [NSApp orderedWindows]) {
+        if (!w.isVisible) continue;
+
+        // The status bar item owns a window too, at a higher level; ordering
+        // that out would take the menu bar icon away with it. Same reasoning
+        // for anything else deliberately floated above the document windows.
+        if (w.level != NSNormalWindowLevel) continue;
+
+        [hidden addObject:w];
+        [w orderOut:nil];
+    }
+    return hidden;
+}
+
+void SCRestoreOwnWindows(NSArray<NSWindow *> *windows) {
+    // Back to front, so whichever window was in front ends up there again.
+    for (NSWindow *w in [windows reverseObjectEnumerator]) {
+        [w orderFront:nil];
+    }
+    // Hand focus back to the one that had it, so a cancelled capture leaves the
+    // editor exactly as it was found. Sending this to nil is a no-op, which is
+    // the right answer when nothing was hidden.
+    [windows.firstObject makeKeyWindow];
+}
+
 NSArray<NSDictionary *> *SCOnScreenWindows(void) {
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
 

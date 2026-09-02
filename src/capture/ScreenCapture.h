@@ -42,4 +42,17 @@ CGImageRef _Nullable SCCaptureWindow(CGWindowID windowID);
 /// top-left coordinates) and `owner` (NSString).
 NSArray<NSDictionary *> *SCOnScreenWindows(void);
 
+/// Takes this app's own windows off the screen so a capture started from one of
+/// them shows what was underneath. Returns them front-to-back for
+/// SCRestoreOwnWindows; the menu bar item and anything else above normal window
+/// level are left alone.
+NSArray<NSWindow *> *SCHideOwnWindows(void);
+
+/// Puts back what SCHideOwnWindows took away, in their original order.
+void SCRestoreOwnWindows(NSArray<NSWindow *> *windows);
+
+/// How long to wait after hiding before the screen is worth snapshotting.
+/// -orderOut: returns before the window server has composited the window away.
+extern const NSTimeInterval SCWindowHideSettleDelay;
+
 NS_ASSUME_NONNULL_END

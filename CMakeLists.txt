@@ -233,4 +233,22 @@ if(SKITCH_BUILD_TESTS)
 
     add_test(NAME render_smoke
              COMMAND skitch_render_smoke "${CMAKE_CURRENT_BINARY_DIR}/smoke.png")
+
+    # Exercises the hide/restore of our own windows around a capture. Touches
+    # only NSWindow bookkeeping, so it runs without a window server.
+    add_executable(skitch_capture_hide_test
+        tests/capture_hide_test.mm
+        src/capture/ScreenCapture.mm
+    )
+    # The capture layer is standalone — it does not use the document model — so
+    # this target needs the include root without linking skitch_core for it.
+    target_include_directories(skitch_capture_hide_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_options(skitch_capture_hide_test PRIVATE
+        ${SKITCH_WARNINGS}
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(skitch_capture_hide_test PRIVATE
+        "-framework Cocoa" "-framework CoreGraphics")
+
+    add_test(NAME capture_hide COMMAND skitch_capture_hide_test)
 endif()
