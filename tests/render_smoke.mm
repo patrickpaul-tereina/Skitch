@@ -9,7 +9,10 @@
 #import <Foundation/Foundation.h>
 
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
+#include <utility>
+#include <vector>
 
 #include "model/Document.h"
 #include "render/Renderer.h"
@@ -106,6 +109,12 @@ int main(int argc, const char *argv[]) {
         ell.p1 = Vec2(980, 390);
         doc.add(ell);
 
+        Annotation sq = base(Tool::Squircle, 6);
+        sq.stroke = Color(0.10, 0.65, 0.70, 1.0);
+        sq.p0 = Vec2(700, 430);
+        sq.p1 = Vec2(880, 590);
+        doc.add(sq);
+
         Annotation pen = base(Tool::Pen, 5);
         pen.stroke = Color(0.60, 0.15, 0.75, 1.0);
         for (int i = 0; i <= 60; ++i) {
@@ -133,7 +142,7 @@ int main(int argc, const char *argv[]) {
         pix.p1 = Vec2(620, 560);
         doc.add(pix);
 
-        check(doc.count() == 8, "eight annotations added");
+        check(doc.count() == 9, "nine annotations added");
 
         // ---- measurement + hit testing ----------------------------------
         const Annotation *t2 = doc.find(textID);
@@ -271,6 +280,97 @@ int main(int argc, const char *argv[]) {
                   "full-frame PNG written");
             CGImageRelease(full);
             std::printf("\nwrote %s\n", fullPath.UTF8String);
+        }
+
+        // ---- squircle shape ------------------------------------------------
+        // Filled 160x160 squircle centred at (100, 100). Its rim crosses the
+        // diagonal ~67px out; the inscribed circle's only ~57px. (40, 40) is
+        // ~60px out, so it is filled for a squircle and empty for an ellipse.
+        {
+            const size_t SW = 200, SH = 200;
+            CGImageRef src = makeFakeScreenshot(SW, SH);
+            Document d;
+            d.reset(SW, SH);
+            Annotation s = base(Tool::Squircle, 2);
+            s.filled = true;
+            s.stroke = s.fill = Color(0.0, 0.0, 1.0, 1.0);
+            s.p0 = Vec2(20, 20);
+            s.p1 = Vec2(180, 180);
+            d.add(s);
+
+            CGImageRef out = renderToImage(d, src);
+            check(out != nullptr, "squircle image produced");
+            if (out) {
+                std::vector<uint8_t> px(SW * SH * 4);
+                CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+                CGContextRef ctx = CGBitmapContextCreate(px.data(), SW, SH, 8, SW * 4, cs,
+                                                         kCGImageAlphaPremultipliedLast);
+                CGColorSpaceRelease(cs);
+                CGContextDrawImage(ctx, CGRectMake(0, 0, SW, SH), out);
+                CGContextRelease(ctx);
+
+                auto isBlue = [&](size_t x, size_t y) {
+                    const uint8_t *p = &px[(y * SW + x) * 4];
+                    return p[0] < 10 && p[1] < 10 && p[2] > 245;
+                };
+                check(isBlue(100, 100), "squircle fills its centre");
+                check(isBlue(40, 40) && isBlue(160, 160) && isBlue(40, 160),
+                      "squircle fills corners an ellipse would leave empty");
+                check(!isBlue(23, 23) && !isBlue(177, 177),
+                      "squircle leaves the bounding-box corners alone");
+                CGImageRelease(out);
+            }
+            CGImageRelease(src);
+        }
+
+        // ---- redaction -----------------------------------------------------
+        // Every pixel the box touches must come out exactly the fill colour:
+        // fractional corners must not leave antialiased edges, and a
+        // translucent colour must not let the content show through.
+        {
+            const size_t RW = 200, RH = 100;
+            CGImageRef src = makeFakeScreenshot(RW, RH);
+            Document d;
+            d.reset(RW, RH);
+            Annotation red = base(Tool::Redact);
+            red.stroke = Color(0.0, 0.0, 0.0, 0.3);
+            red.p0 = Vec2(20.4, 10.6);
+            red.p1 = Vec2(120.3, 60.2);
+            d.add(red);
+
+            CGImageRef out = renderToImage(d, src);
+            check(out != nullptr, "redacted image produced");
+            if (out) {
+                std::vector<uint8_t> px(RW * RH * 4);
+                CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+                CGContextRef ctx = CGBitmapContextCreate(px.data(), RW, RH, 8, RW * 4, cs,
+                                                         kCGImageAlphaPremultipliedLast);
+                CGColorSpaceRelease(cs);
+                CGContextDrawImage(ctx, CGRectMake(0, 0, RW, RH), out);
+                CGContextRelease(ctx);
+
+                // Rows in memory run top-down, matching document space.
+                bool solid = true;
+                for (size_t y = 10; y < 61; ++y) {
+                    for (size_t x = 20; x < 121; ++x) {
+                        const uint8_t *p = &px[(y * RW + x) * 4];
+                        if (p[0] || p[1] || p[2] || p[3] != 255) solid = false;
+                    }
+                }
+                check(solid, "redaction covers every touched pixel with opaque fill");
+
+                // One pixel past each edge sits in the dark title bar (~51), not
+                // the black fill: the rounding goes out to the next whole pixel
+                // and no further.
+                bool untouched = true;
+                for (const auto &xy : {std::pair<size_t, size_t>{19, 30}, {121, 30},
+                                       {60, 9}, {60, 61}}) {
+                    if (px[(xy.second * RW + xy.first) * 4] < 20) untouched = false;
+                }
+                check(untouched, "pixels just outside the redaction are untouched");
+                CGImageRelease(out);
+            }
+            CGImageRelease(src);
         }
 
         CGImageRelease(shot);

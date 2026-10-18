@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #import "capture/ScreenCapture.h"
 
+#import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <unistd.h>
 
 @implementation SCDisplaySnapshot
@@ -55,47 +56,180 @@ void SCShowPermissionAlert(void) {
 }
 
 // --------------------------------------------------------------- capture ---
+// ScreenCaptureKit only gained a still-image API (SCScreenshotManager) in
+// macOS 14. Before that the CoreGraphics calls are the only synchronous way to
+// grab a frame, so they stay as the fallback for 12 and 13. From macOS 15 on
+// they are obsolete, and the system nags apps that still use them.
 
-CGImageRef SCCaptureDisplay(CGDirectDisplayID display) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    return CGDisplayCreateImage(display);
-#pragma clang diagnostic pop
+static CGDirectDisplayID DisplayIDForScreen(NSScreen *screen) {
+    NSNumber *num = screen.deviceDescription[@"NSScreenNumber"];
+    return num ? (CGDirectDisplayID)num.unsignedIntValue : kCGNullDirectDisplay;
 }
 
-NSArray<SCDisplaySnapshot *> *SCSnapshotAllDisplays(void) {
+static SCDisplaySnapshot *MakeSnapshot(NSScreen *screen, CGDirectDisplayID did,
+                                       CGImageRef img) {
+    SCDisplaySnapshot *snap = [[SCDisplaySnapshot alloc] init];
+    snap.displayID = did;
+    snap.screen = screen;
+    snap.image = img;
+
+    const CGRect bounds = CGDisplayBounds(did);
+    snap.scale = bounds.size.width > 0
+                     ? (CGFloat)CGImageGetWidth(img) / bounds.size.width
+                     : screen.backingScaleFactor;
+    return snap;
+}
+
+// ---- macOS 12–13 ----
+
+static NSArray<SCDisplaySnapshot *> *LegacySnapshotAllDisplays(void) {
     NSMutableArray<SCDisplaySnapshot *> *out = [NSMutableArray array];
 
     for (NSScreen *screen in [NSScreen screens]) {
-        NSNumber *num = screen.deviceDescription[@"NSScreenNumber"];
-        if (!num) continue;
-        const CGDirectDisplayID did = (CGDirectDisplayID)num.unsignedIntValue;
+        const CGDirectDisplayID did = DisplayIDForScreen(screen);
+        if (did == kCGNullDirectDisplay) continue;
 
-        CGImageRef img = SCCaptureDisplay(did);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        CGImageRef img = CGDisplayCreateImage(did);
+#pragma clang diagnostic pop
         if (!img) continue;
 
-        SCDisplaySnapshot *snap = [[SCDisplaySnapshot alloc] init];
-        snap.displayID = did;
-        snap.screen = screen;
-        snap.image = img;
+        [out addObject:MakeSnapshot(screen, did, img)];
         CGImageRelease(img);
-
-        const CGRect bounds = CGDisplayBounds(did);
-        snap.scale = bounds.size.width > 0
-                         ? (CGFloat)CGImageGetWidth(snap.image) / bounds.size.width
-                         : screen.backingScaleFactor;
-        [out addObject:snap];
     }
     return out;
 }
 
-CGImageRef SCCaptureWindow(CGWindowID windowID) {
+static CGImageRef LegacyCaptureWindow(CGWindowID windowID) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     return CGWindowListCreateImage(
         CGRectNull, kCGWindowListOptionIncludingWindow, windowID,
         kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution);
 #pragma clang diagnostic pop
+}
+
+// ---- macOS 14 and later ----
+
+// Full native resolution of whatever the filter covers, without the cursor —
+// matching what the CoreGraphics calls produced.
+API_AVAILABLE(macos(14.0))
+static SCStreamConfiguration *ConfigurationForFilter(SCContentFilter *filter) {
+    SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
+    const CGFloat scale = filter.pointPixelScale;
+    config.width = (size_t)llround(filter.contentRect.size.width * scale);
+    config.height = (size_t)llround(filter.contentRect.size.height * scale);
+    config.captureResolution = SCCaptureResolutionBest;
+    config.showsCursor = NO;
+    config.ignoreShadowsSingleWindow = YES;
+    return config;
+}
+
+API_AVAILABLE(macos(14.0))
+static void ModernSnapshotAllDisplays(void (^completion)(NSArray<SCDisplaySnapshot *> *)) {
+    [SCShareableContent getShareableContentWithCompletionHandler:^(
+                            SCShareableContent *content, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!content) {
+                completion(@[]);
+                return;
+            }
+
+            // One slot per screen, filled as captures land, so the result keeps
+            // NSScreen order however the completions interleave.
+            NSArray<NSScreen *> *screens = [NSScreen screens];
+            NSMutableArray *slots = [NSMutableArray arrayWithCapacity:screens.count];
+            for (NSUInteger i = 0; i < screens.count; ++i) [slots addObject:[NSNull null]];
+
+            dispatch_group_t group = dispatch_group_create();
+            [screens enumerateObjectsUsingBlock:^(NSScreen *screen, NSUInteger i, BOOL *stop) {
+                const CGDirectDisplayID did = DisplayIDForScreen(screen);
+                SCDisplay *display = nil;
+                for (SCDisplay *d in content.displays) {
+                    if (d.displayID == did) display = d;
+                }
+                if (!display) return;
+
+                SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display
+                                                                  excludingWindows:@[]];
+                dispatch_group_enter(group);
+                [SCScreenshotManager
+                    captureImageWithFilter:filter
+                             configuration:ConfigurationForFilter(filter)
+                         completionHandler:^(CGImageRef img, NSError *captureError) {
+                             // The image is only lent for the duration of this block.
+                             CGImageRef held = img ? CGImageRetain(img) : NULL;
+                             dispatch_async(dispatch_get_main_queue(), ^{
+                                 if (held) {
+                                     slots[i] = MakeSnapshot(screen, did, held);
+                                     CGImageRelease(held);
+                                 }
+                                 dispatch_group_leave(group);
+                             });
+                         }];
+            }];
+
+            dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+                NSMutableArray<SCDisplaySnapshot *> *out = [NSMutableArray array];
+                for (id slot in slots) {
+                    if (slot != [NSNull null]) [out addObject:slot];
+                }
+                completion(out);
+            });
+        });
+    }];
+}
+
+API_AVAILABLE(macos(14.0))
+static void ModernCaptureWindow(CGWindowID windowID, void (^completion)(CGImageRef)) {
+    [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                                               onScreenWindowsOnly:YES
+                                                 completionHandler:^(
+                                                     SCShareableContent *content,
+                                                     NSError *error) {
+        SCWindow *window = nil;
+        for (SCWindow *w in content.windows) {
+            if (w.windowID == windowID) window = w;
+        }
+        if (!window) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(NULL); });
+            return;
+        }
+
+        SCContentFilter *filter =
+            [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
+        [SCScreenshotManager
+            captureImageWithFilter:filter
+                     configuration:ConfigurationForFilter(filter)
+                 completionHandler:^(CGImageRef img, NSError *captureError) {
+                     CGImageRef held = img ? CGImageRetain(img) : NULL;
+                     dispatch_async(dispatch_get_main_queue(), ^{
+                         completion(held);
+                         CGImageRelease(held);
+                     });
+                 }];
+    }];
+}
+
+// ---- entry points ----
+
+void SCSnapshotAllDisplays(void (^completion)(NSArray<SCDisplaySnapshot *> *)) {
+    if (@available(macOS 14.0, *)) {
+        ModernSnapshotAllDisplays(completion);
+    } else {
+        completion(LegacySnapshotAllDisplays());
+    }
+}
+
+void SCCaptureWindow(CGWindowID windowID, void (^completion)(CGImageRef)) {
+    if (@available(macOS 14.0, *)) {
+        ModernCaptureWindow(windowID, completion);
+    } else {
+        CGImageRef img = LegacyCaptureWindow(windowID);
+        completion(img);
+        CGImageRelease(img);
+    }
 }
 
 // ------------------------------------------------------- our own windows ---

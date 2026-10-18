@@ -26,9 +26,18 @@ using sk::Tool;
 
 // ============================================================== app cycle ==
 
-- (void)applicationDidFinishLaunching:(NSNotification *)notification {
-    _editors = [NSMutableArray array];
+- (instancetype)init {
+    if ((self = [super init])) {
+        // Here rather than in applicationDidFinishLaunching: AppKit delivers
+        // application:openFile: for files opened at launch (from Finder, `open`,
+        // or the command line) before that runs. An editor added to a nil array
+        // is held by nothing and freed while its window is still drawing.
+        _editors = [NSMutableArray array];
+    }
+    return self;
+}
 
+- (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self buildMainMenu];
     [self buildStatusItem];
     [self registerGlobalHotkeys];
@@ -39,6 +48,9 @@ using sk::Tool;
         return;
     }
 
+    // AppKit has already sent application:openFile: for the files the app was
+    // launched with; opening them again here would give each a second window.
+    if (_editors.count > 0) return;
     if ([self openFilesFromCommandLine]) return;
     if ([self commandLineHasFlag:@"--no-capture"]) return;
 
@@ -76,7 +88,9 @@ using sk::Tool;
             break;
         }
     }
-    if (!imagePath || ![self openImageAtURL:[NSURL fileURLWithPath:imagePath]]) {
+    // The source image is usually already open, via application:openFile:.
+    if (_editors.count == 0 &&
+        (!imagePath || ![self openImageAtURL:[NSURL fileURLWithPath:imagePath]])) {
         std::fputs("selftest: could not open a source image\n", stderr);
         [NSApp terminate:nil];
         return;
@@ -315,9 +329,11 @@ using sk::Tool;
     } tools[] = {
         {"Select", Tool::Select, "v"},      {"Arrow", Tool::Arrow, "a"},
         {"Line", Tool::Line, "l"},          {"Rectangle", Tool::Rect, "r"},
-        {"Ellipse", Tool::Ellipse, "o"},    {"Pen", Tool::Pen, "p"},
+        {"Ellipse", Tool::Ellipse, "o"},    {"Squircle", Tool::Squircle, "s"},
+        {"Pen", Tool::Pen, "p"},
         {"Highlighter", Tool::Highlighter, "h"}, {"Text", Tool::Text, "t"},
-        {"Pixelate", Tool::Pixelate, "x"},  {"Crop", Tool::Crop, "c"},
+        {"Pixelate", Tool::Pixelate, "x"},  {"Redact", Tool::Redact, "b"},
+        {"Crop", Tool::Crop, "c"},
     };
     for (const auto &t : tools) {
         NSMenuItem *item = [self addItemTo:toolsMenu

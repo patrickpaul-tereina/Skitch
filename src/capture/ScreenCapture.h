@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Kunkka
 // SPDX-License-Identifier: GPL-2.0-only
-// Thin wrapper over the CoreGraphics window/display capture APIs, plus the
+// Thin wrapper over the window/display capture APIs — ScreenCaptureKit on
+// macOS 14 and later, the older CoreGraphics calls before that — plus the
 // Screen Recording permission dance macOS requires before any of them return
 // real pixels.
 #pragma once
@@ -30,14 +31,15 @@ BOOL SCRequestScreenRecordingPermission(void);
 /// Puts up an alert explaining how to grant the permission manually.
 void SCShowPermissionAlert(void);
 
-/// Full-resolution grab of a single display. Caller owns the result.
-CGImageRef _Nullable SCCaptureDisplay(CGDirectDisplayID display);
+/// One snapshot per attached display, in NSScreen order. Displays that could
+/// not be captured are left out, so an empty array usually means the Screen
+/// Recording permission is missing. `completion` runs on the main queue.
+void SCSnapshotAllDisplays(void (^completion)(NSArray<SCDisplaySnapshot *> *snapshots));
 
-/// One snapshot per attached display.
-NSArray<SCDisplaySnapshot *> *SCSnapshotAllDisplays(void);
-
-/// Full-resolution grab of one window, excluding its shadow. Caller owns it.
-CGImageRef _Nullable SCCaptureWindow(CGWindowID windowID);
+/// Full-resolution grab of one window, excluding its shadow. `completion` runs
+/// on the main queue with NULL on failure; the image is only borrowed, so
+/// retain it to keep it past the block.
+void SCCaptureWindow(CGWindowID windowID, void (^completion)(CGImageRef _Nullable image));
 
 /// On-screen windows, front-most first, excluding this app's own windows.
 /// Each entry has `windowID` (NSNumber), `bounds` (NSValue/CGRect in global

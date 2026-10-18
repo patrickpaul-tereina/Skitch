@@ -108,6 +108,10 @@ jobs:
         test -f Skitch.app/Contents/Resources/Skitch.icns
         test -f Skitch.app/Contents/Info.plist
         echo "bundle layout OK"
+        # The hardened runtime is what stops other processes injecting code
+        # into Skitch to borrow its Screen Recording grant.
+        codesign -dv Skitch.app 2>&1 | grep -q 'flags=.*runtime' ||
+          { echo "::error::Skitch.app is not signed with the hardened runtime."; exit 1; }
 
     - name: Verify the portable core has no platform dependencies
       # The point of skitch_core is that it builds anywhere. On Linux that is

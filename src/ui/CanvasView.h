@@ -28,8 +28,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, weak) id<SKCanvasViewDelegate> delegate;
 
-/// Not owned; the window controller keeps it alive for the view's lifetime.
-@property(nonatomic, assign) sk::Document *document;
+/// Not owned. The window controller sets it and clears it to null before the
+/// document is freed; with none, the canvas draws nothing.
+@property(nonatomic, assign) sk::Document *_Nullable document;
 
 /// Base pixels. Setting this retains the image and releases the previous one.
 @property(nonatomic) CGImageRef baseImage;

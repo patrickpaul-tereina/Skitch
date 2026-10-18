@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #import "capture/OverlayWindow.h"
 
+#import "capture/CountdownWindow.h"
 #import "capture/ScreenCapture.h"
 
 // ---------------------------------------------------------------- window ---
@@ -304,15 +305,17 @@
 @end
 
 static SCOverlayController *gActiveController = nil;
+// A delayed capture is under way from the moment its countdown starts.
+static BOOL gCountingDown = NO;
 
 @implementation SCOverlayController
 
-+ (BOOL)isCapturing { return gActiveController != nil; }
++ (BOOL)isCapturing { return gActiveController != nil || gCountingDown; }
 
 + (void)beginCaptureWithMode:(SCCaptureMode)mode
                        delay:(NSTimeInterval)delay
                   completion:(SCCaptureCompletion)completion {
-    if (gActiveController) return;
+    if (gActiveController || gCountingDown) return;
 
     if (!SCRequestScreenRecordingPermission()) {
         SCShowPermissionAlert();
@@ -321,10 +324,12 @@ static SCOverlayController *gActiveController = nil;
     }
 
     if (delay > 0.0) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-                           [self beginCaptureWithMode:mode delay:0 completion:completion];
-                       });
+        gCountingDown = YES;
+        [SCCountdown runForSeconds:(NSInteger)ceil(delay)
+                        completion:^{
+                            gCountingDown = NO;
+                            [self beginCaptureWithMode:mode delay:0 completion:completion];
+                        }];
         return;
     }
 
@@ -362,7 +367,15 @@ static SCOverlayController *gActiveController = nil;
 }
 
 - (void)snapshotAndPresent {
-    self.snapshots = SCSnapshotAllDisplays();
+    // gActiveController keeps this controller alive until the capture finishes.
+    __weak SCOverlayController *weakSelf = self;
+    SCSnapshotAllDisplays(^(NSArray<SCDisplaySnapshot *> *snapshots) {
+        [weakSelf presentSnapshots:snapshots];
+    });
+}
+
+- (void)presentSnapshots:(NSArray<SCDisplaySnapshot *> *)snapshots {
+    self.snapshots = snapshots;
     if (self.snapshots.count == 0) {
         SCShowPermissionAlert();
         [self finishWithImage:NULL scale:1.0];
@@ -501,8 +514,11 @@ static SCOverlayController *gActiveController = nil;
                    dispatch_get_main_queue(), ^{
                        SCOverlayController *self_ = weakSelf;
                        if (!self_) return;
-                       CGImageRef img = SCCaptureWindow(wid);
-                       [self_ finishWithImage:img scale:fallbackScale];
+                       SCCaptureWindow(wid, ^(CGImageRef img) {
+                           // finishWithImage: takes ownership; the capture only lends it.
+                           [self_ finishWithImage:img ? CGImageRetain(img) : NULL
+                                            scale:fallbackScale];
+                       });
                    });
 }
 

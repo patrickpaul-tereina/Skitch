@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "model/Annotation.h"
@@ -60,7 +61,11 @@ public:
     // `r` is given in the current document space; it is composed onto the
     // existing crop and clamped to the base image.
     void applyCrop(const RectD& r);
-    void resetCrop();
+    // Returns false, changing nothing, when the full frame is already showing.
+    bool resetCrop();
+
+    /// True when the crop shows less than the whole base image.
+    bool isCropped() const;
 
     // ---- revert ----------------------------------------------------------
 
@@ -77,21 +82,31 @@ public:
     // Discards the group pushed by the most recent beginUndoGroup() when the
     // edit turned out to be a no-op (e.g. a click that moved nothing).
     void abortUndoGroup();
+    // Closes the open group once its edit has landed, so a later stray
+    // abortUndoGroup() cannot roll back work that was already committed.
+    void endUndoGroup();
 
     bool canUndo() const { return !undo_.empty(); }
     bool canRedo() const { return !redo_.empty(); }
     void undo();
     void redo();
 
-    bool isDirty() const { return dirty_; }
-    void markClean() { dirty_ = false; }
+    // Dirty means "differs from the last markClean()", so undoing back to the
+    // saved state reads as clean again.
+    bool isDirty() const { return state_.rev != cleanRev_; }
+    void markClean() { cleanRev_ = state_.rev; }
 
 private:
     struct State {
         std::vector<Annotation> items;
         RectD crop;
         int nextId = 1;
+        // Identifies this exact state; snapshots carry theirs through undo.
+        std::uint64_t rev = 0;
     };
+
+    // Gives the current state a revision no snapshot shares.
+    void touch() { state_.rev = nextRev_++; }
 
     State state_;
     std::vector<State> undo_;
@@ -99,7 +114,8 @@ private:
     // Parked during an open group so an aborted edit can put it back.
     std::vector<State> savedRedo_;
     bool groupOpen_ = false;
-    bool dirty_ = false;
+    std::uint64_t nextRev_ = 1;
+    std::uint64_t cleanRev_ = 0;
     double baseWidth_ = 0.0;
     double baseHeight_ = 0.0;
 

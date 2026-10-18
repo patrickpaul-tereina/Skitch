@@ -18,10 +18,14 @@ enum class Tool {
     Line,
     Rect,
     Ellipse,
+    // Superellipse |x/a|^4 + |y/b|^4 = 1: flat sides easing into round corners.
+    Squircle,
     Pen,
     Highlighter,
     Text,
     Pixelate,
+    // Solid, opaque box. Unlike Pixelate, it keeps nothing of what it covers.
+    Redact,
     Crop,
     Count
 };
@@ -74,7 +78,8 @@ struct Annotation {
 
     bool isLineLike() const { return tool == Tool::Arrow || tool == Tool::Line; }
     bool isBoxLike() const {
-        return tool == Tool::Rect || tool == Tool::Ellipse || tool == Tool::Pixelate;
+        return tool == Tool::Rect || tool == Tool::Ellipse || tool == Tool::Squircle ||
+               tool == Tool::Pixelate || tool == Tool::Redact;
     }
     bool isFreehand() const { return tool == Tool::Pen || tool == Tool::Highlighter; }
 

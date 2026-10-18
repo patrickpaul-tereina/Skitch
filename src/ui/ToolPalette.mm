@@ -19,10 +19,12 @@ const ToolSpec kTools[] = {
     {Tool::Line,        "line.diagonal",         "/",  "Line  (L)"},
     {Tool::Rect,        "rectangle",             "▭",  "Rectangle  (R)"},
     {Tool::Ellipse,     "circle",                "◯",  "Ellipse  (O)"},
+    {Tool::Squircle,    "app",                   "▢",  "Squircle  (S)"},
     {Tool::Pen,         "pencil.tip",            "✎",  "Pen  (P)"},
     {Tool::Highlighter, "highlighter",           "▬",  "Highlighter  (H)"},
     {Tool::Text,        "textformat",            "T",  "Text  (T)"},
     {Tool::Pixelate,    "square.grid.3x3.fill",  "▩",  "Pixelate  (X)"},
+    {Tool::Redact,      "rectangle.fill",        "■",  "Redact  (B)"},
     {Tool::Crop,        "crop",                  "⌗",  "Crop  (C)"},
 };
 const int kToolCount = sizeof(kTools) / sizeof(kTools[0]);

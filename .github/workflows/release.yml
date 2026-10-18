@@ -180,6 +180,8 @@ jobs:
         fi
 
         codesign --verify --strict "$app"
+        codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' ||
+          { echo "::error::The packaged app is not signed with the hardened runtime."; exit 1; }
 
         echo "disk image verified: $(du -h "$dmg" | cut -f1) — Skitch $plist_version"
 

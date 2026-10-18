@@ -131,6 +131,27 @@ void drawPixelate(CGContextRef ctx, const Annotation& a, CGImageRef base) {
     CGImageRelease(mosaic);
 }
 
+// ------------------------------------------------------------ squircle ----
+
+// The superellipse |x/a|^4 + |y/b|^4 = 1 inscribed in `r`. Its parametric form
+// is x = a·sgn(cos t)·|cos t|^(1/2), and likewise for y. A fixed 256-gon is
+// smooth at any size: the points crowd into the corners where the curve turns,
+// and the long segments land on the sides, which are close to straight.
+void addSquircle(CGMutablePathRef path, const RectD& r) {
+    const Vec2 c = r.center();
+    const double a = r.w * 0.5, b = r.h * 0.5;
+    const int kSteps = 256;
+    for (int i = 0; i < kSteps; ++i) {
+        const double t = 2.0 * M_PI * i / kSteps;
+        const double ct = std::cos(t), st = std::sin(t);
+        const double x = c.x + a * std::copysign(std::sqrt(std::fabs(ct)), ct);
+        const double y = c.y + b * std::copysign(std::sqrt(std::fabs(st)), st);
+        if (i == 0) CGPathMoveToPoint(path, nullptr, x, y);
+        else CGPathAddLineToPoint(path, nullptr, x, y);
+    }
+    CGPathCloseSubpath(path);
+}
+
 // --------------------------------------------------------------- arrow ----
 
 // A tapered arrow: thin at the tail, flaring into a solid head.
@@ -278,6 +299,20 @@ void drawAnnotation(CGContextRef ctx, const Annotation& a, const Document& doc,
             break;
         }
 
+        case Tool::Squircle: {
+            CGMutablePathRef p = CGPathCreateMutable();
+            addSquircle(p, RectD::fromCorners(a.p0, a.p1));
+            if (a.filled) {
+                setFill(ctx, a.fill);
+                CGContextAddPath(ctx, p);
+                CGContextFillPath(ctx);
+            }
+            CGContextAddPath(ctx, p);
+            CGContextStrokePath(ctx);
+            CGPathRelease(p);
+            break;
+        }
+
         case Tool::Pen: {
             if (a.points.size() == 1) {
                 setFill(ctx, a.stroke);
@@ -317,6 +352,20 @@ void drawAnnotation(CGContextRef ctx, const Annotation& a, const Document& doc,
         case Tool::Pixelate:
             drawPixelate(ctx, a, base);
             break;
+
+        case Tool::Redact: {
+            // Out to whole base-image pixels, so no antialiased edge leaves a
+            // partly covered pixel behind. Opaque and normal-blended whatever
+            // the chosen colour, so nothing underneath shows through.
+            const RectD r = RectD::fromCorners(a.p0, a.p1);
+            const double x0 = std::floor(r.minX()), y0 = std::floor(r.minY());
+            const double x1 = std::ceil(r.maxX()), y1 = std::ceil(r.maxY());
+            CGContextSetBlendMode(ctx, kCGBlendModeNormal);
+            CGContextSetAlpha(ctx, 1.0);
+            setFill(ctx, a.stroke.withAlpha(1.0));
+            CGContextFillRect(ctx, CGRectMake(x0, y0, x1 - x0, y1 - y0));
+            break;
+        }
 
         case Tool::Text: {
             measureText(a);

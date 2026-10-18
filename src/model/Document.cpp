@@ -13,15 +13,17 @@ void Document::reset(double w, double h) {
     baseHeight_ = h;
     undo_.clear();
     redo_.clear();
+    savedRedo_.clear();
     groupOpen_ = false;
-    dirty_ = false;
+    nextRev_ = 1;
+    cleanRev_ = 0;
 }
 
 int Document::add(const Annotation& a) {
     Annotation copy = a;
     copy.id = state_.nextId++;
     state_.items.push_back(copy);
-    dirty_ = true;
+    touch();
     return copy.id;
 }
 
@@ -30,14 +32,14 @@ bool Document::remove(int id) {
                            [id](const Annotation& a) { return a.id == id; });
     if (it == state_.items.end()) return false;
     state_.items.erase(it);
-    dirty_ = true;
+    touch();
     return true;
 }
 
 void Document::clear() {
     if (state_.items.empty()) return;
     state_.items.clear();
-    dirty_ = true;
+    touch();
 }
 
 Annotation* Document::find(int id) {
@@ -66,7 +68,7 @@ bool Document::raise(int id) {
                            [id](const Annotation& a) { return a.id == id; });
     if (it == state_.items.end() || it + 1 == state_.items.end()) return false;
     std::iter_swap(it, it + 1);
-    dirty_ = true;
+    touch();
     return true;
 }
 
@@ -75,7 +77,7 @@ bool Document::lower(int id) {
                            [id](const Annotation& a) { return a.id == id; });
     if (it == state_.items.end() || it == state_.items.begin()) return false;
     std::iter_swap(it, it - 1);
-    dirty_ = true;
+    touch();
     return true;
 }
 
@@ -85,24 +87,29 @@ void Document::applyCrop(const RectD& r) {
     next = next.intersect(RectD(0, 0, baseWidth_, baseHeight_));
     if (next.w < 1.0 || next.h < 1.0) return;
     state_.crop = next;
-    dirty_ = true;
+    touch();
 }
 
-void Document::resetCrop() {
+bool Document::resetCrop() {
+    if (!isCropped()) return false;
     state_.crop = RectD(0, 0, baseWidth_, baseHeight_);
-    dirty_ = true;
+    touch();
+    return true;
+}
+
+bool Document::isCropped() const {
+    return state_.crop.x != 0.0 || state_.crop.y != 0.0 ||
+           state_.crop.w != baseWidth_ || state_.crop.h != baseHeight_;
 }
 
 bool Document::hasEdits() const {
-    if (!state_.items.empty()) return true;
-    return state_.crop.x != 0.0 || state_.crop.y != 0.0 ||
-           state_.crop.w != baseWidth_ || state_.crop.h != baseHeight_;
+    return !state_.items.empty() || isCropped();
 }
 
 void Document::revert() {
     state_.items.clear();
     state_.crop = RectD(0, 0, baseWidth_, baseHeight_);
-    dirty_ = true;
+    touch();
 }
 
 void Document::beginUndoGroup() {
@@ -113,6 +120,9 @@ void Document::beginUndoGroup() {
     savedRedo_ = std::move(redo_);
     redo_.clear();
     groupOpen_ = true;
+    // Callers may mutate annotations in place through find(), out of the
+    // document's sight, so the open group is what marks the state as new.
+    touch();
 }
 
 void Document::abortUndoGroup() {
@@ -124,13 +134,18 @@ void Document::abortUndoGroup() {
     groupOpen_ = false;
 }
 
+void Document::endUndoGroup() {
+    savedRedo_.clear();
+    groupOpen_ = false;
+}
+
 void Document::undo() {
     if (undo_.empty()) return;
     redo_.push_back(state_);
     state_ = undo_.back();
     undo_.pop_back();
+    savedRedo_.clear();
     groupOpen_ = false;
-    dirty_ = true;
 }
 
 void Document::redo() {
@@ -138,8 +153,8 @@ void Document::redo() {
     undo_.push_back(state_);
     state_ = redo_.back();
     redo_.pop_back();
+    savedRedo_.clear();
     groupOpen_ = false;
-    dirty_ = true;
 }
 
 }  // namespace sk

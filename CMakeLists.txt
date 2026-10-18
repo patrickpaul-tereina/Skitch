@@ -118,6 +118,7 @@ set(SKITCH_SOURCES
 
     src/capture/ScreenCapture.mm
     src/capture/OverlayWindow.mm
+    src/capture/CountdownWindow.mm
 
     src/ui/AppDelegate.mm
     src/ui/EditorWindowController.mm
@@ -132,6 +133,7 @@ set(SKITCH_HEADERS
     src/render/Renderer.h
     src/capture/ScreenCapture.h
     src/capture/OverlayWindow.h
+    src/capture/CountdownWindow.h
     src/ui/AppDelegate.h
     src/ui/EditorWindowController.h
     src/ui/CanvasView.h
@@ -162,6 +164,9 @@ target_link_libraries(Skitch PRIVATE
     "-framework ApplicationServices"
     "-framework Carbon"
     "-framework UniformTypeIdentifiers"
+    # Weak: it first shipped in 12.3, above the 12.0 deployment target, and is
+    # only called on 14+ (see ScreenCapture.mm).
+    "-Wl,-weak_framework,ScreenCaptureKit"
 )
 
 # ------------------------------------------------------------------ icon ---
@@ -208,8 +213,13 @@ set_target_properties(Skitch PROPERTIES
 
 # An ad-hoc signature keeps the bundle's identity stable so macOS remembers the
 # Screen Recording grant between rebuilds instead of re-prompting every time.
+#
+# --options runtime turns on the hardened runtime. Without it, anything running
+# as the user could start Skitch with DYLD_INSERT_LIBRARIES and inherit its
+# Screen Recording grant without a prompt. The app needs no exception
+# entitlements: no JIT, no unsigned plug-ins, no injected libraries.
 add_custom_command(TARGET Skitch POST_BUILD
-    COMMAND codesign --force --sign - --timestamp=none
+    COMMAND codesign --force --sign - --timestamp=none --options runtime
             "$<TARGET_BUNDLE_DIR:Skitch>"
     COMMENT "Ad-hoc signing ${APP_NAME}.app"
     VERBATIM)
@@ -274,7 +284,8 @@ if(SKITCH_BUILD_TESTS)
         ${SKITCH_WARNINGS}
         $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     target_link_libraries(skitch_capture_hide_test PRIVATE
-        "-framework Cocoa" "-framework CoreGraphics")
+        "-framework Cocoa" "-framework CoreGraphics"
+        "-Wl,-weak_framework,ScreenCaptureKit")
 
     add_test(NAME capture_hide COMMAND skitch_capture_hide_test)
 endif()

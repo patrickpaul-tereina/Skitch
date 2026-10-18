@@ -11,10 +11,12 @@ const char* toolName(Tool t) {
         case Tool::Line: return "Line";
         case Tool::Rect: return "Rectangle";
         case Tool::Ellipse: return "Ellipse";
+        case Tool::Squircle: return "Squircle";
         case Tool::Pen: return "Pen";
         case Tool::Highlighter: return "Highlighter";
         case Tool::Text: return "Text";
         case Tool::Pixelate: return "Pixelate";
+        case Tool::Redact: return "Redact";
         case Tool::Crop: return "Crop";
         default: return "?";
     }
@@ -51,7 +53,7 @@ RectD Annotation::coreBounds() const {
 RectD Annotation::displayBounds() const {
     RectD b = coreBounds();
     if (tool == Tool::Text) return b.insetBy(4.0);
-    if (tool == Tool::Pixelate) return b;
+    if (tool == Tool::Pixelate || tool == Tool::Redact) return b;
     double pad = lineWidth * 0.5 + 1.0;
     if (tool == Tool::Arrow) pad = lineWidth * 2.5 + 1.0;
     return b.insetBy(pad);
@@ -99,7 +101,24 @@ bool Annotation::hitTest(const Vec2& p, double tolerance) const {
             return inner >= 1.0;
         }
 
+        case Tool::Squircle: {
+            // Same scheme as the ellipse, on the degree-4 superellipse metric.
+            const RectD b = RectD::fromCorners(p0, p1);
+            const Vec2 c = b.center();
+            const double rx = std::max(b.w * 0.5, 1e-6);
+            const double ry = std::max(b.h * 0.5, 1e-6);
+            const double dx = (p.x - c.x), dy = (p.y - c.y);
+            auto metric = [&](double ax, double ay) {
+                const double u = dx / ax, v = dy / ay;
+                return u * u * u * u + v * v * v * v;
+            };
+            if (metric(rx + tol, ry + tol) > 1.0) return false;
+            if (filled) return true;
+            return metric(std::max(rx - tol, 1e-6), std::max(ry - tol, 1e-6)) >= 1.0;
+        }
+
         case Tool::Pixelate:
+        case Tool::Redact:
             return RectD::fromCorners(p0, p1).contains(p);
 
         case Tool::Text:

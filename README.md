@@ -191,6 +191,11 @@ In the capture overlay: drag to select, hold **Shift** for a square, press
 screen, **Esc** to cancel. Every display is frozen before the overlay appears,
 so the overlay itself never lands in the shot.
 
+The delayed capture counts down in a round badge in the middle of the screen
+you are working on, so you know when the shot is coming. It takes no clicks
+and never steals focus, so menus and hover states stay put, and it is gone from
+the screen before anything is frozen.
+
 Skitch's own windows go away first. Starting a capture — from the palette's
 Capture button, a menu, or a global hotkey — orders any open editor off the
 screen before the displays are frozen, so what you get is whatever was
@@ -206,13 +211,15 @@ where it was. The menu bar icon stays put.
 | Line | `L` | |
 | Rectangle | `R` | outline or filled |
 | Ellipse | `O` | outline or filled |
+| Squircle | `S` | outline or filled; a superellipse, rounder-cornered than a rectangle |
 | Pen | `P` | smoothed freehand |
 | Highlighter | `H` | translucent, multiply-blended |
 | Text | `T` | multi-line, edited in place on the canvas |
-| Pixelate | `X` | mosaic over anything sensitive |
+| Pixelate | `X` | mosaic; obscures, but is not safe for secrets |
+| Redact | `B` | solid opaque box in the current colour; use this for anything sensitive |
 | Crop | `C` | drag a region; non-destructive and undoable |
 
-Hold **Shift** while dragging to constrain: squares/circles for boxes, 15°
+Hold **Shift** while dragging to constrain: squares, circles and round squircles for boxes, 15°
 increments for lines and arrows. Colour, stroke width, text size and fill come
 from the palette above the canvas. Arrow keys nudge the selection (Shift for
 10px steps).
@@ -344,7 +351,7 @@ ctest --test-dir build
 
 Three suites, split by what they need:
 
-**`skitch_core_tests`** (`tests/core_tests.cpp`) — 107 checks over geometry,
+**`skitch_core_tests`** (`tests/core_tests.cpp`) — 124 checks over geometry,
 annotation bounds, hit testing for every tool, transforms, the document,
 z-order, crop composition and clamping, undo/redo, and revert. No platform
 headers, no window server, no permissions; it is what keeps `skitch_core`
@@ -385,7 +392,7 @@ backend behind it:
 
 | Layer | macOS today | What a port needs |
 | --- | --- | --- |
-| Capture | `CGDisplayCreateImage`, `CGWindowListCreateImage` | X11/Wayland `xdg-desktop-portal`; Windows `BitBlt` or `Windows.Graphics.Capture` |
+| Capture | ScreenCaptureKit (`SCScreenshotManager`) on 14+; `CGDisplayCreateImage`, `CGWindowListCreateImage` on 12–13 | X11/Wayland `xdg-desktop-portal`; Windows `BitBlt` or `Windows.Graphics.Capture` |
 | Rendering | CoreGraphics + CoreText in `Renderer.mm` | Skia, Cairo, or Direct2D — plus a text shaper |
 | UI | AppKit, written by hand | Qt, GTK, or Win32/WinUI |
 | Hotkeys | Carbon `RegisterEventHotKey` | X11 `XGrabKey`; Windows `RegisterHotKey` |

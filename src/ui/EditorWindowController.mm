@@ -64,7 +64,7 @@ using sk::Tool;
                             NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    window.minSize = NSMakeSize(1010, 360);  // the palette's controls need this much
+    window.minSize = NSMakeSize(1078, 360);  // the palette's controls need this much
     window.releasedWhenClosed = NO;
     window.tabbingMode = NSWindowTabbingModeDisallowed;
 
@@ -80,6 +80,13 @@ using sk::Tool;
         [self sizeWindowToImage];
     }
     return self;
+}
+
+- (void)dealloc {
+    // The canvas only borrows the document, and the window can outlive this
+    // controller by a display pass or two. Detach it so it draws nothing rather
+    // than reading a freed document.
+    _canvas.document = nullptr;
 }
 
 - (void)buildInterface {
@@ -342,6 +349,9 @@ using sk::Tool;
     }
     if (action == @selector(redoEdit:)) {
         return !_canvas.isEditingText && _document && _document->canRedo();
+    }
+    if (action == @selector(resetCrop:)) {
+        return !_canvas.isEditingText && _document && _document->isCropped();
     }
     if (action == @selector(revertToOriginal:)) {
         return !_canvas.isEditingText && _document && _document->hasEdits();

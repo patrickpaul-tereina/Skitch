@@ -155,8 +155,11 @@ const int kZoomStepCount = sizeof(kZoomSteps) / sizeof(kZoomSteps[0]);
 
     const CGFloat k = [self pixelScale];
 
-    // Checkerboard behind everything so transparent captures read correctly.
-    [self drawCheckerboardInRect:dirty];
+    // Plain dark backdrop behind everything, showing through wherever a capture
+    // is transparent. A shade darker than the scroll view around the canvas,
+    // so the image's edge still reads.
+    [[NSColor colorWithWhite:0.16 alpha:1.0] setFill];
+    NSRectFill(dirty);
 
     CGContextSaveGState(ctx);
     CGContextScaleCTM(ctx, k, k);
@@ -177,24 +180,6 @@ const int kZoomStepCount = sizeof(kZoomSteps) / sizeof(kZoomSteps[0]);
 
     [self drawSelectionChrome];
     [self drawCropChrome];
-}
-
-- (void)drawCheckerboardInRect:(NSRect)dirty {
-    const CGFloat cell = 8.0;
-    [[NSColor colorWithWhite:0.86 alpha:1.0] setFill];
-    NSRectFill(dirty);
-
-    // Only tile the invalidated area — on a large capture the full-bounds loop
-    // would be tens of thousands of fills per redraw.
-    [[NSColor colorWithWhite:0.94 alpha:1.0] setFill];
-    const CGFloat x0 = std::floor(NSMinX(dirty) / cell) * cell;
-    const CGFloat y0 = std::floor(NSMinY(dirty) / cell) * cell;
-    for (CGFloat y = y0; y < NSMaxY(dirty); y += cell) {
-        for (CGFloat x = x0; x < NSMaxX(dirty); x += cell) {
-            if ((static_cast<int>(x / cell) + static_cast<int>(y / cell)) % 2) continue;
-            NSRectFill(NSIntersectionRect(NSMakeRect(x, y, cell, cell), dirty));
-        }
-    }
 }
 
 - (void)drawSelectionChrome {
@@ -523,7 +508,8 @@ const int kZoomStepCount = sizeof(kZoomSteps) / sizeof(kZoomSteps[0]);
 - (Vec2)constrainPoint:(Vec2)p from:(Vec2)origin forTool:(Tool)tool {
     const double dx = p.x - origin.x;
     const double dy = p.y - origin.y;
-    if (tool == Tool::Rect || tool == Tool::Ellipse || tool == Tool::Pixelate) {
+    if (tool == Tool::Rect || tool == Tool::Ellipse || tool == Tool::Squircle ||
+        tool == Tool::Pixelate || tool == Tool::Redact) {
         const double d = std::max(std::fabs(dx), std::fabs(dy));
         return Vec2(origin.x + (dx < 0 ? -d : d), origin.y + (dy < 0 ? -d : d));
     }
@@ -853,7 +839,7 @@ const int kZoomStepCount = sizeof(kZoomSteps) / sizeof(kZoomSteps[0]);
 }
 
 - (void)resetCrop {
-    if (!self.document) return;
+    if (!self.document || !self.document->isCropped()) return;
     [self commitPendingEdits];
     self.document->beginUndoGroup();
     self.document->resetCrop();
@@ -915,6 +901,9 @@ const int kZoomStepCount = sizeof(kZoomSteps) / sizeof(kZoomSteps[0]);
 // ================================================================= misc ====
 
 - (void)notifyEdited {
+    // Every completed edit passes through here, which makes it the place the
+    // undo group opened for that edit is closed.
+    if (self.document) self.document->endUndoGroup();
     [self.delegate canvasViewDidEditDocument:self];
 }
 

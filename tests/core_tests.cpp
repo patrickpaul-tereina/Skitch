@@ -153,6 +153,21 @@ void testHitTesting() {
     disc.filled = true;
     check(disc.hitTest(Vec2(50, 50), 4.0), "filled ellipse hit in the centre");
 
+    // On a 100x100 squircle the rim crosses the diagonal at 50·(1/2)^(1/4) ≈ 42
+    // from the centre, so (8, 8) is on it — well outside the inscribed circle.
+    Annotation sq = make(Tool::Squircle, Vec2(0, 0), Vec2(100, 100), 4);
+    check(sq.isBoxLike(), "squircle classified");
+    check(sq.hitTest(Vec2(50, 0), 4.0), "outlined squircle hit on a flat side");
+    check(sq.hitTest(Vec2(8, 8), 4.0), "outlined squircle hit on its corner curve");
+    check(!ring.hitTest(Vec2(8, 8), 4.0), "where an ellipse would already have curved away");
+    check(!sq.hitTest(Vec2(50, 50), 4.0), "outlined squircle misses the centre");
+    check(!sq.hitTest(Vec2(0, 0), 4.0), "outlined squircle misses the bounding corner");
+
+    Annotation tile = sq;
+    tile.filled = true;
+    check(tile.hitTest(Vec2(50, 50), 4.0), "filled squircle hit in the centre");
+    check(!tile.hitTest(Vec2(0, 0), 4.0), "filled squircle still misses the corner");
+
     Annotation pen;
     pen.tool = Tool::Pen;
     pen.lineWidth = 4;
@@ -169,6 +184,13 @@ void testHitTesting() {
 
     Annotation pix = make(Tool::Pixelate, Vec2(0, 0), Vec2(50, 50));
     check(pix.hitTest(Vec2(25, 25), 1.0), "pixelate hit anywhere inside");
+
+    Annotation red = make(Tool::Redact, Vec2(0, 0), Vec2(50, 50));
+    check(red.isBoxLike() && !red.isLineLike() && !red.isFreehand(), "redact classified");
+    check(red.hitTest(Vec2(25, 25), 1.0), "redact hit anywhere inside");
+    check(!red.hitTest(Vec2(80, 80), 1.0), "redact miss outside");
+    check(nearly(red.displayBounds().w, 50), "redact bounds are not padded for stroke");
+    check(toolCreatesAnnotation(Tool::Redact), "redact creates an annotation");
 }
 
 void testTransforms() {
@@ -412,6 +434,76 @@ void testRevert() {
     check(!e.hasEdits(), "revert clears a crop-only edit");
 }
 
+void testUndoGroupLifecycle() {
+    section("undo group lifecycle");
+
+    Document d;
+    d.reset(100, 100);
+    d.beginUndoGroup();
+    d.add(make(Tool::Rect, Vec2(0, 0), Vec2(10, 10)));
+    d.endUndoGroup();
+    d.abortUndoGroup();
+    check(d.count() == 1, "abort after endUndoGroup leaves the committed edit alone");
+    check(d.canUndo(), "abort after endUndoGroup keeps the undo step");
+
+    d.undo();
+    check(d.canRedo(), "redo available after undo");
+    d.abortUndoGroup();
+    check(d.canRedo() && d.count() == 0, "abort with no open group is a no-op");
+}
+
+void testResetCropNoOp() {
+    section("reset crop");
+
+    Document d;
+    d.reset(200, 100);
+    check(!d.isCropped(), "a fresh document is not cropped");
+    check(!d.resetCrop(), "resetting an uncropped document reports no change");
+    check(!d.isDirty(), "a no-op reset does not dirty the document");
+
+    d.applyCrop(RectD(10, 10, 50, 50));
+    check(d.isCropped(), "applyCrop crops");
+    check(d.resetCrop(), "resetting a cropped document reports a change");
+    check(!d.isCropped(), "resetCrop restores the full frame");
+}
+
+void testDirtyTracking() {
+    section("dirty tracking");
+
+    Document d;
+    d.reset(100, 100);
+    d.beginUndoGroup();
+    d.add(make(Tool::Rect, Vec2(0, 0), Vec2(10, 10)));
+    d.endUndoGroup();
+    d.markClean();
+
+    d.beginUndoGroup();
+    d.add(make(Tool::Line, Vec2(0, 0), Vec2(5, 5)));
+    d.endUndoGroup();
+    check(d.isDirty(), "an edit after saving is dirty");
+    d.undo();
+    check(!d.isDirty(), "undoing back to the saved state is clean");
+    d.redo();
+    check(d.isDirty(), "redoing past the saved state is dirty again");
+    d.undo();
+
+    // Moves mutate through find(), which the document cannot see; the open
+    // group is what has to mark them.
+    d.beginUndoGroup();
+    d.find(d.items().front().id)->translate(Vec2(3, 3));
+    d.endUndoGroup();
+    check(d.isDirty(), "an in-place move is dirty");
+    d.undo();
+    check(!d.isDirty(), "undoing the move is clean");
+
+    d.beginUndoGroup();
+    d.abortUndoGroup();
+    check(!d.isDirty(), "an aborted gesture leaves the document clean");
+
+    d.reset(50, 50);
+    check(!d.isDirty(), "reset is clean");
+}
+
 }  // namespace
 
 int main() {
@@ -427,6 +519,9 @@ int main() {
     testUndo();
     testUndoDepth();
     testRevert();
+    testUndoGroupLifecycle();
+    testResetCropNoOp();
+    testDirtyTracking();
 
     std::printf("\n%s — %d checks, %d failure%s\n", gFailures == 0 ? "PASS" : "FAIL",
                 gChecks, gFailures, gFailures == 1 ? "" : "s");
